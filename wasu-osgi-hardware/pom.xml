@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.wasu</groupId>
+        <artifactId>wasu-osgi</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wasu-osgi-hardware</artifactId>
+    <packaging>bundle</packaging>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>com.wasu</groupId>
+            <artifactId>wasu-osgi-common</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.30</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>1.2.83</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                    <include>**/*.xml</include>
+                </includes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <!-- osgi 打包配置，使用 maven-bundle-plugin 插件进行 osgi 打包 bundle jar -->
+                <!-- 使用maven-bundle-plugin打包方式时指定manifest文件不生效，但可在 instructions 中配置 manifest 参数 -->
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>3.5.0</version>
+                <extensions>true</extensions>
+
+                <configuration>
+                    <instructions>
+                        <!-- 把依赖的普通jar和bundle jar也一起打包进去(/lib目录下)，bundle jar 服务依赖还要在 Import-Package 中指定 -->
+                        <Embed-Dependency>*;scope=compile|runtime</Embed-Dependency>
+                        <Embed-Directory>lib</Embed-Directory>
+                        <Embed-Transitive>true</Embed-Transitive>
+                        <Bundle-ClassPath>.,{maven-dependencies}</Bundle-ClassPath>
+                        <Bundle-Name>${project.name}</Bundle-Name>
+                        <Bundle-SymbolicName>com.wasu.osgi.hardware.hgu01</Bundle-SymbolicName>
+                        <Bundle-Version>1.0.0</Bundle-Version>
+                        <Bundle-Activator>com.wasu.osgi.hardware.hgu01.Activator</Bundle-Activator>
+                        <DynamicImport-Package>*</DynamicImport-Package>
+                        <Export-Package>
+                            com.wasu.osgi.hardware.hgu01.service;version="1.0.0"
+                        </Export-Package>
+                        <Import-Package>
+                            org.osgi.framework;version="1.3.0",org.apache.log4j
+                        </Import-Package>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
