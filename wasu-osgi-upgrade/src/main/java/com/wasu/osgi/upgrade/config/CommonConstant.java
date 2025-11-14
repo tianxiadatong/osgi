@@ -18,6 +18,7 @@ public class CommonConstant {
     public static final String NETWORK_CHECK = "hgu-api.iot.wasumedia.cn";
 
     public static final String UPGRADE_FILE_NAME = "com.wasu.osgi.bundle.update";
+    public static final String MODEL_FILE_NAME = "com.wasu.osgi.model.hgu01";
 
     // 升级类型常量
     public static final String UPGRADE_TYPE_MAIN = "main";

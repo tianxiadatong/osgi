@@ -41,12 +41,23 @@ public class OTAHandler implements IHandler {
                     IUpgradeService upgradeService = bundleContext.getService(serviceReference);
                     upgradeService.checkUpgrade(ConfigProperties.deviceId);
                 }
-                ServiceReference<IFirmwareUpgradeService> iFirmwareUpgradeServiceServiceReference = bundleContext.getServiceReference(IFirmwareUpgradeService.class);
-                logger.info("获取到的IFirmwareUpgradeService：" + iFirmwareUpgradeServiceServiceReference);
-                if (iFirmwareUpgradeServiceServiceReference != null) {
-                    IFirmwareUpgradeService iFirmwareUpgradeService = bundleContext.getService(iFirmwareUpgradeServiceServiceReference);
-                    iFirmwareUpgradeService.upOTA(params);
+
+                IFirmwareUpgradeService upgradeService = UpgradeServiceTracker.getService();
+                int retryCount = 0;
+                while (upgradeService == null && retryCount < 10) {
+                    logger.info("第 " + (retryCount + 1) + " 次尝试获取 IFirmwareUpgradeService 服务失败，等待 10 秒后重试...");
+                    Thread.sleep(10000);
+                    upgradeService = UpgradeServiceTracker.getService();
+                    retryCount++;
                 }
+
+                if (upgradeService != null) {
+                    //logger.info("成功获取到 IFirmwareUpgradeService 实例：" + upgradeService);
+                    upgradeService.upOTA(params);
+                } else {
+                    logger.error("无法获取 IFirmwareUpgradeService 服务，upOTA请求失败。");
+                }
+
                 return null;
             }
         } catch (Exception e) {

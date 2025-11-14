@@ -29,7 +29,6 @@ public class CommonUtil {
 
     /**
      * 将时间字符串（如 "1:00"）转换为秒数（如 3600）
-     *
      * @param timeStr 时间字符串，格式 "HH:mm"
      * @return 对应的秒数
      */

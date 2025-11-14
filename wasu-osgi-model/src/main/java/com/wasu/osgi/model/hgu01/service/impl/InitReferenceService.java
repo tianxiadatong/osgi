@@ -41,7 +41,7 @@ public class InitReferenceService {
     protected static LanNetworkAccessConfigService lanNetworkAccessConfigService;
     protected static WlanSecretQueryService wlanSecretQueryService;
     protected static EthQueryService ethQueryService;
-    //protected static PlugConfigService plugConfigService;
+    protected static PlugConfigService plugConfigService;
 
     static {
         try {
@@ -123,10 +123,10 @@ public class InitReferenceService {
             if (ethQueryServiceReference != null) {
                 ethQueryService = bundleContext.getService(ethQueryServiceReference);
             }
-            /*ServiceReference<PlugConfigService> plugConfigServiceReference = bundleContext.getServiceReference(PlugConfigService.class);
+            ServiceReference<PlugConfigService> plugConfigServiceReference = bundleContext.getServiceReference(PlugConfigService.class);
             if(plugConfigServiceReference != null){
                 plugConfigService = bundleContext.getService(plugConfigServiceReference);
-            }*/
+            }
             logger.info("初始化外部依赖成功。");
         } catch (Exception e) {
             logger.error("初始化外部依赖异常，", e);

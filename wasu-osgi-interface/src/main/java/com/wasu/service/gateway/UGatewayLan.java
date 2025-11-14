@@ -8,7 +8,6 @@ package com.wasu.service.gateway;
 public interface UGatewayLan {
     /**
      * 获取LAN侧主机列表
-     *
      * @return 返回值:String类型,jsonObject格式
      */
     String getHostList();

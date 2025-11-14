@@ -4,13 +4,18 @@ import com.wasu.osgi.model.hgu01.config.HguContext;
 import com.wasu.osgi.model.hgu01.connect.HttpRequest;
 import com.wasu.osgi.model.hgu01.connect.MqttConnect;
 import com.wasu.osgi.model.hgu01.handler.OTAHandler;
+import com.wasu.osgi.model.hgu01.handler.UpgradeServiceTracker;
 import com.wasu.osgi.model.hgu01.message.MessageHandler;
 import com.wasu.osgi.model.hgu01.service.IHardwareService;
 import com.wasu.osgi.model.hgu01.service.NetworkService;
 import com.wasu.osgi.model.hgu01.service.impl.HardwareServiceImpl;
+import com.wasu.osgi.model.hgu01.service.impl.MqttServiceImpl;
 import com.wasu.osgi.model.hgu01.service.impl.NetworkServiceImpl;
-import com.wasu.osgi.model.hgu01.timetask.*;
+import com.wasu.osgi.model.hgu01.timetask.NetworkChecker;
+import com.wasu.osgi.model.hgu01.timetask.TaskList;
+import com.wasu.osgi.model.hgu01.timetask.TaskManager;
 import com.wasu.osgi.model.hgu01.util.LogUtil;
+import com.wasu.osgi.upgrade.service.IMqttService;
 import org.apache.log4j.Logger;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
@@ -18,6 +23,7 @@ import org.osgi.service.cm.ManagedService;
 import org.osgi.util.tracker.ServiceTracker;
 
 import java.util.concurrent.*;
+
 
 /**
  * @author glmx_
@@ -56,6 +62,8 @@ public class Activator implements BundleActivator {
         }
         closeResource();
         MqttConnect.disconnect();
+        // 关闭 UpgradeServiceTracker
+        UpgradeServiceTracker.close();
     }
 
     private void networkRetry(BundleContext context) {
@@ -113,8 +121,12 @@ public class Activator implements BundleActivator {
             logger.info("完成初始化：loadAllPolicies");
         }
 
+
         //事件监听
         bundleContext.registerService(ManagedService.class, new MessageHandler(bundleContext), null);
+        // 注册MQTT服务
+        bundleContext.registerService(IMqttService.class, new MqttServiceImpl(), null);
+        logger.info("IMqttService接口注册成功。");
     }
 
     private void closeResource() {

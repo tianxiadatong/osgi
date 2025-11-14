@@ -23,7 +23,9 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Properties;
-import java.util.concurrent.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -231,6 +233,7 @@ public class HardwareServiceImpl extends InitReferenceService implements IHardwa
     public boolean deviceTimeLimit(JSONObject params) {
         return timeLimitService.createTimeLimit(params);
     }
+
 
     @Override
     public boolean removeDeviceTimeLimit(JSONObject params) {
@@ -826,15 +829,30 @@ public class HardwareServiceImpl extends InitReferenceService implements IHardwa
 
     @Override
     public boolean setSwitchStatus(JSONObject params) {
-        if (deviceRsetService != null) {
-            String funcName = params.getString("funcName"); //功能名称枚举： scheduledRestart（定时重启）
-            int enable = params.getInt("enable");  //开关，1开启，0关闭
-            if (funcName != null & FuncNameEnum.SCHEDULED_RESTART.getCode().equalsIgnoreCase(funcName)) {
-                int result = deviceRsetService.setScheduledRestartStatus(enable == 1);
-                return result == 0;
-            }
+        String funcName = params.getString("funcName"); //功能名称枚举： scheduledRestart（定时重启）
+        int enable = params.getInt("enable");  //开关，1开启，0关闭
+        if (deviceRsetService != null && funcName != null & FuncNameEnum.SCHEDULED_RESTART.getCode().equalsIgnoreCase(funcName)) {
+            int result = deviceRsetService.setScheduledRestartStatus(enable == 1);
+            return result == 0;
+        }
+        if (plugConfigService != null && funcName != null & FuncNameEnum.GAME_ASSISTANT.getCode().equalsIgnoreCase(funcName)) {
+            int result = plugConfigService.setPlugSwitchStatus(funcName, enable);
+            return result == 0;
         }
         return false;
+    }
+
+    @Override
+    public JSONObject getSwitchStatus(JSONObject params) {
+        //String funcName = params.getString("funcName");&& funcName != null && FuncNameEnum.GAME_ASSISTANT.getCode().equalsIgnoreCase(funcName)
+        if (plugConfigService != null) {
+            int enable = plugConfigService.getPlugSwitchStatus(FuncNameEnum.GAME_ASSISTANT.getCode());
+            JSONObject object = new JSONObject();
+            object.put("enable", enable);
+            object.put("funcName", FuncNameEnum.GAME_ASSISTANT.getCode());
+            return object;
+        }
+        return null;
     }
 
     @Override
@@ -1093,6 +1111,7 @@ public class HardwareServiceImpl extends InitReferenceService implements IHardwa
         return jsonObject;
     }
 
+
     @Override
     public void wifiSetting(JSONObject params) {
         int visible = params.getInt("visible");
@@ -1175,6 +1194,7 @@ public class HardwareServiceImpl extends InitReferenceService implements IHardwa
             }
         }
     }
+
 
     @Override
     public JSONArray getWifiSetting() {
@@ -1567,70 +1587,5 @@ public class HardwareServiceImpl extends InitReferenceService implements IHardwa
         }
         return false;
     }
-
-   /* @Override
-    public boolean setPlugSwitchStatus1(JSONObject params) {
-        if(plugConfigService != null) {
-            int enable = params.getInt("enable");
-            //1开启，0关闭
-            int result = plugConfigService.setPlugSwitchStatus(enable == 1);
-            return result == 0;
-        }
-        return false;
-    }
-
-    @Override
-    public JSONObject getPlugSwitchStatus1() {
-        if (plugConfigService != null) {
-            boolean result = plugConfigService.getPlugSwitchStatus1();
-            JSONObject object = new JSONObject();
-            object.put("enable", result ? 1 : 0);  // 1 - 开启 ； 0 - 关闭
-            return object;
-        }
-        return null;
-    }
-    @Override
-    public boolean setPlugSwitchStatus(JSONObject params) {
-        if (plugConfigService != null) {
-            String funcName = params.getString("PlugName"); //功能名称枚举： gameAssistant（游帮帮）
-            int enable = params.getInt("Status");  //开关，1关，0开
-            if (funcName != null & FuncNameEnum.GAME_ASSISTANT.getCode().equalsIgnoreCase(funcName)) {
-                int result =  plugConfigService.setPlugSwitchStatus(enable == 1);
-                return result == 0;
-            }
-        }
-        return false;
-    }
-
-    @Override
-    public JSONArray getPlugSwitchStatus() {
-        if (plugConfigService != null) {
-            JSONArray resultList = new JSONArray();
-            JSONObject jsonObject = new JSONObject(plugConfigService.getPlugSwitchStatus());
-            logger.info("getScheduledRestart: " + jsonObject);
-            int result = jsonObject.getInt("Result");
-            if (result == 0) {
-                JSONArray list = jsonObject.getJSONArray("List");
-                for (int i = 0; i < list.length(); i++) {
-                    JSONObject resultObj = new JSONObject();
-                    JSONObject object = list.getJSONObject(i);
-                    resultObj.put("id", object.getInt("Id"));
-                    resultObj.put("enable", object.getString("EnableState").equals("true") ? 1 : 0);
-                    resultObj.put("days", object.getString("Days"));
-
-                    String timeStr = object.getString("Time");
-                    if (timeStr != null && !timeStr.trim().isEmpty()) {
-                        resultObj.put("time", CommonUtil.convertHourMinuteToSeconds(timeStr));
-                    } else {
-                        resultObj.put("time", 0);
-                    }
-//                    resultObj.put("time", CommonUtil.convertHourMinuteToSeconds(object.getString("Time")));
-                    resultList.put(resultObj);
-                }
-                return resultList;
-            }
-        }
-        return null;
-    }*/
 
 }

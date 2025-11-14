@@ -3,12 +3,13 @@ package com.wasu.osgi.upgrade;
 import com.cw.smartgateway.commservices.DeviceInfoQueryService;
 import com.wasu.osgi.upgrade.config.CommonConstant;
 import com.wasu.osgi.upgrade.config.ConfigProperties;
+import com.wasu.osgi.upgrade.service.IFirmwareUpgradeService;
 import com.wasu.osgi.upgrade.service.IUpgradeService;
-import com.wasu.osgi.upgrade.service.IFirmwareUpgradeService; // 添加新服务接口导入
 import com.wasu.osgi.upgrade.service.NetworkService;
+import com.wasu.osgi.upgrade.service.impl.FirmwareUpgradeServiceImpl;
 import com.wasu.osgi.upgrade.service.impl.NetworkServiceImpl;
 import com.wasu.osgi.upgrade.service.impl.UpgradeServiceImpl;
-import com.wasu.osgi.upgrade.service.impl.FirmwareUpgradeServiceImpl; // 添加新服务实现类导入
+import com.wasu.osgi.upgrade.service.impl.UpgradeServiceTracker;
 import com.wasu.osgi.upgrade.util.LogUtil;
 import com.wasu.osgi.upgrade.util.NetworkChecker;
 import com.wasu.osgi.upgrade.util.StringUtil;
@@ -21,6 +22,7 @@ import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
 
 import java.util.concurrent.*;
+
 
 /**
  * @author glmx_
@@ -52,6 +54,9 @@ public class Activator implements BundleActivator {
     @Override
     public void stop(BundleContext ctx) {
         closeResource();
+        // 关闭 UpgradeServiceTracker
+        UpgradeServiceTracker.close();
+
     }
 
     private void networkRetry(BundleContext context) {
@@ -92,15 +97,16 @@ public class Activator implements BundleActivator {
         logger.info("获取到的设备id：" + deviceId);
         if (!StringUtil.isEmpty(deviceId) && !"-1".equals(deviceId)) {
             ConfigProperties.deviceId = deviceId;
-            // 初始化MQTT配置
-            com.wasu.osgi.upgrade.util.MqttInitializer.initializeMqtt(deviceId);
-            // 初始化MQTT客户端
-            com.wasu.osgi.upgrade.util.MqttClient.getInstance();
-
             IUpgradeService upgradeService = new UpgradeServiceImpl();
             upgradeService.checkUpgrade(deviceId);
-            // 修改为:
+
+            // 检查是否有待安装的插件
             IFirmwareUpgradeService firmwareUpgradeService = new FirmwareUpgradeServiceImpl();
+            firmwareUpgradeService.checkAndInstallPendingPlugins();
+            // 检查固件升级结果（程序重启后）
+            firmwareUpgradeService.checkFirmwareUpgradeResultOnStartup();
+
+            firmwareUpgradeService = new FirmwareUpgradeServiceImpl();
             JSONObject params = new JSONObject();
             JSONArray upgrades = new JSONArray();
             JSONObject mainComponent = new JSONObject();
@@ -119,6 +125,28 @@ public class Activator implements BundleActivator {
 
             params.put("upgrades", upgrades);
             firmwareUpgradeService.upOTA(params);
+
+
+           /* try {
+                logger.info("尝试获取所有服务引用进行诊断");
+                ServiceReference<?>[] allServices = context.getAllServiceReferences(null, null);
+                if (allServices != null) {
+                    logger.info("当前已注册的服务数量: " + allServices.length);
+                    for (ServiceReference<?> ref : allServices) {
+                        Object service = context.getService(ref);
+                        if (service != null) {
+                            logger.info("已注册服务: " + ref.toString() + "，服务类: " + service.getClass().getName());
+                            context.ungetService(ref);
+                        } else {
+                            logger.info("已注册服务(无法获取实例): " + ref.toString());
+                        }
+                    }
+                } else {
+                    logger.info("当前没有已注册的服务");
+                }
+            } catch (Exception e) {
+                logger.error("查询所有服务引用时出错", e);
+            }*/
         }
     }
 

@@ -16,7 +16,6 @@ public enum FuncNameEnum {
 
     /**
      * 根据 code 查找对应的枚举值（不区分大小写）
-     *
      * @param code 要查找的 code
      * @return 匹配的枚举值，找不到返回 null
      */

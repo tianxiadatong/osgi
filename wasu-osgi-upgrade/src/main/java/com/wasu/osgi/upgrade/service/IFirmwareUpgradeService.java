@@ -16,6 +16,7 @@ public interface IFirmwareUpgradeService {
      */
     boolean upOTA(JSONObject params);
 
+
     /**
      * 1. 识别固件类型升级（main/C插件/Java插件）
      * 2. 调用硬件升级服务执行固件和C插件升级
@@ -24,5 +25,8 @@ public interface IFirmwareUpgradeService {
      */
     boolean checkFirmwareUpgrade(JSONObject params);
 
-    boolean checkFirmwareUpgrade1(JSONObject params);
+    void checkAndInstallPendingPlugins();
+
+    void checkFirmwareUpgradeResultOnStartup();
+
 }

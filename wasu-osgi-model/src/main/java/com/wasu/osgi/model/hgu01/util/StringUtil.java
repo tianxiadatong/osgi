@@ -23,11 +23,13 @@ public class StringUtil {
 
     final private static char ESCAPE_CHAR = '\\';
 
+
     static {
         NumberFormat numberFormat = NumberFormat.getNumberInstance(Locale.ENGLISH);
         DECIMAL_FORMAT = (DecimalFormat) numberFormat;
         DECIMAL_FORMAT.applyPattern("#.##");
     }
+
 
     /**
      * Split a string using the default separator
@@ -68,6 +70,7 @@ public class StringUtil {
         }
         return strList.toArray(new String[strList.size()]);
     }
+
 
     /**
      * Finds the first occurrence of the separator character ignoring the escaped

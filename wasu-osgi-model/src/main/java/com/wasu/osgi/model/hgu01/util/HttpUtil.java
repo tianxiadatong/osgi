@@ -1,5 +1,4 @@
 package com.wasu.osgi.model.hgu01.util;
-
 import lombok.Data;
 import org.apache.log4j.Logger;
 import org.json.JSONObject;

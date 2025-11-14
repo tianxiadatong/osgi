@@ -1,2 +1,1 @@
-com.wasu.osgi.model.hgu01
-com.wasu.osgi.bundle.update
+com.wasu.osgi.bundle.update,com.wasu.osgi.model.hgu01

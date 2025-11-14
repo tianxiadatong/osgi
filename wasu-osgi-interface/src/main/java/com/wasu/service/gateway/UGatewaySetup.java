@@ -9,14 +9,12 @@ public interface UGatewaySetup {
 
     /**
      * 重启网关
-     *
      * @return int类型，0表示成功，非0表示失败
      */
     int reboot();
 
     /**
      * 重置网关
-     *
      * @return int类型，0表示成功，非0表示失败
      */
     int factoryReset();

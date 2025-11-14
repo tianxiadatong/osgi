@@ -6,6 +6,7 @@ import com.wasu.osgi.upgrade.config.CommonConstant;
 import com.wasu.osgi.upgrade.dto.UpgradeFileDTO;
 import com.wasu.osgi.upgrade.dto.UpgradeInfoDTO;
 import com.wasu.osgi.upgrade.service.IFirmwareUpgradeService;
+import com.wasu.osgi.upgrade.service.IMqttService;
 import com.wasu.osgi.upgrade.util.FileUtil;
 import com.wasu.osgi.upgrade.util.StringUtil;
 import org.apache.log4j.Logger;
@@ -15,12 +16,12 @@ import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.ServiceReference;
+import org.osgi.framework.wiring.FrameworkWiring;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -59,25 +60,8 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                     JSONObject upgrade = upgrades.getJSONObject(i);
                     JSONObject current = new JSONObject();
                     current.put("component", upgrade.getString("component"));
-                    current.put("version", upgrade.getString("version"));
+                    current.put("version", "1.0.0");
                     currents.put(current);
-                }
-
-                // 根据规范，当upgrades中包含main组件时，需额外在currents中添加component为wifi、version为1.1.1的条目
-                boolean hasMainComponent = false;
-                for (int i = 0; i < upgrades.length(); i++) {
-                    JSONObject upgrade = upgrades.getJSONObject(i);
-                    if ("main".equals(upgrade.getString("component"))) {
-                        hasMainComponent = true;
-                        break;
-                    }
-                }
-
-                if (hasMainComponent) {
-                    JSONObject wifiComponent = new JSONObject();
-                    wifiComponent.put("component", "wifi");
-                    wifiComponent.put("version", "1.1.1");
-                    currents.put(wifiComponent);
                 }
             }
 
@@ -98,17 +82,28 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
     @Override
     public boolean checkFirmwareUpgrade(JSONObject params) {
         try {
-            // 修改参数处理逻辑，因为现在传入的params已经是data对象
-            if (params != null && params.has("upgrades")) {
-                JSONArray upgradesArray = params.getJSONArray("upgrades");
+            logger.info("收到升级检查请求，参数: " + params.toString());
+
+            // 从 data 里取升级计划
+            JSONArray dataUpgrades = null;
+            if (params.has("data")) {
+                JSONObject dataObj = params.getJSONObject("data");
+                dataUpgrades = dataObj.optJSONArray("upgrades");
+                // 判断 data.upgrades 是否为空
+                if (dataUpgrades == null || dataUpgrades.length() == 0) {
+                    logger.info("没有需要升级的组件，结束本次升级检查");
+                    //发送失败消息
+                    sendResult(params, "没有需要升级的组件，结束本次升级检查");
+                    return false;
+                }
 
                 // 创建UpgradeInfoDTO对象
                 UpgradeInfoDTO upgradeInfoDTO = new UpgradeInfoDTO();
                 List<UpgradeFileDTO> fileList = new ArrayList<>();
 
                 // 遍历upgrades数组，转换为UpgradeFileDTO列表
-                for (int i = 0; i < upgradesArray.length(); i++) {
-                    JSONObject upgrade = upgradesArray.getJSONObject(i);
+                for (int i = 0; i < dataUpgrades.length(); i++) {
+                    JSONObject upgrade = dataUpgrades.getJSONObject(i);
                     UpgradeFileDTO upgradeFileDTO = new UpgradeFileDTO();
 
                     if (upgrade.has("component")) {
@@ -134,19 +129,43 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
 
                     // 如果是main或C插件类型，则调用固件升级服务
                     if (CommonConstant.UPGRADE_TYPE_MAIN.equals(model) || CommonConstant.UPGRADE_TYPE_C_PLUGIN.equals(model)) {
+                        logger.info("开始处理 " + model + " 类型固件升级");
                         return startFirmwareUpgrade(upgradeFileDTO);
                     }
                     // 如果是Java插件类型，则处理Java插件升级
                     else if (CommonConstant.UPGRADE_TYPE_JAVA_PLUGIN.equals(model)) {
+                        logger.info("开始处理Java插件升级");
                         return handleJavaPluginUpgrade(upgradeFileDTO);
                     }
                 }
+            } else {
+                logger.info("收到的参数中不包含upgrades字段或参数为空");
+                //发送失败消息
+                sendResult(params, "收到的参数中不包含upgrades字段或参数为空");
             }
         } catch (Exception e) {
             logger.error("检查固件升级异常", e);
-            sendResult(9, "firmware", "unknown", 0);
+            sendResult(9, "firmware", "unknown", 0, null);
         }
         return false;
+    }
+
+    private void sendResult(JSONObject params, String detail) {
+        String component = "firmware";
+        String version = "unknown";
+
+        // 尝试从 params.upgrades 提取 component 和 version
+        if (params.has("params")) {
+            JSONObject paramsObj = params.getJSONObject("params");
+            JSONArray upgrades = paramsObj.optJSONArray("upgrades");
+            if (upgrades != null && upgrades.length() > 0) {
+                JSONObject upgradeObj = upgrades.getJSONObject(0);
+                component = upgradeObj.optString("component", "firmware");
+                version = upgradeObj.optString("version", "unknown");
+            }
+        }
+        // 调用 sendResult 并传入提取的值
+        sendResult(9, component, version, 0, detail);
     }
 
     /**
@@ -158,24 +177,23 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
     private boolean startFirmwareUpgrade(UpgradeFileDTO upgradeFileDTO) {
         try {
             // 获取硬件升级服务
-            BundleContext bundleContext = FrameworkUtil.getBundle(Activator.class).getBundleContext();
+            BundleContext bundleContext = FrameworkUtil.getBundle(com.wasu.osgi.upgrade.Activator.class).getBundleContext();
             ServiceReference<HardwareUpdate> serviceReference = bundleContext.getServiceReference(HardwareUpdate.class);
             if (serviceReference == null) {
                 logger.error("无法获取HardwareUpdate服务");
-                sendResult(9, upgradeFileDTO.getModel(), null, 0);
+                sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "无法获取HardwareUpdate服务");
                 return false;
             }
 
             HardwareUpdate HardwareUpdate = bundleContext.getService(serviceReference);
             if (HardwareUpdate == null) {
                 logger.error("HardwareUpdate实例为空");
-                sendResult(9, upgradeFileDTO.getModel(), null, 0);
+                sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "HardwareUpdate实例为空");
                 return false;
             }
 
             String packageUrl = upgradeFileDTO.getUrl();
             String upgradeVersion = upgradeFileDTO.getVersion();
-            String currentVersion = "unknown"; // 可根据需要获取当前版本
 
             logger.info("开始固件升级，类型：" + upgradeFileDTO.getModel() + "，URL：" + packageUrl + "，版本：" + upgradeVersion);
 
@@ -183,8 +201,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
             int result = HardwareUpdate.startHardwareUpdate(
                     packageUrl,
                     upgradeFileDTO.getModel(),
-                    upgradeVersion,
-                    currentVersion
+                    upgradeVersion
             );
 
             if (result == 0) {
@@ -193,13 +210,15 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                 scheduleUpgradeResultCheck(HardwareUpdate, upgradeFileDTO.getModel(), upgradeVersion);
                 return true;
             } else {
-                logger.error("固件升级启动失败，返回码：" + result);
-                sendResult(9, upgradeFileDTO.getModel(), upgradeVersion, 0);
+                String errorMsg = "固件升级启动失败，返回码：" + result;
+                logger.error(errorMsg);
+                sendResult(9, upgradeFileDTO.getModel(), upgradeVersion, 0, errorMsg);
                 return false;
             }
         } catch (Exception e) {
-            logger.error("启动固件升级异常", e);
-            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0);
+            String errorMsg = "启动固件升级异常: " + e.getMessage();
+            logger.error(errorMsg, e);
+            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, errorMsg);
             return false;
         }
     }
@@ -221,7 +240,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
             File zipFile = FileUtil.downloadFile(packageUrl, CommonConstant.BUNDLE_PATH);
             if (zipFile == null) {
                 logger.error("Java插件下载失败");
-                sendResult(9, pluginModel, upgradeVersion, 0);
+                sendResult(9, pluginModel, upgradeVersion, 0, "Java插件下载失败");
                 return false;
             }
 
@@ -229,56 +248,131 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
             String extractPath = CommonConstant.BUNDLE_PATH + "temp_extract/";
             if (!extractZipFile(zipFile.getAbsolutePath(), extractPath)) {
                 logger.error("Java插件解压失败");
-                sendResult(9, pluginModel, upgradeVersion, 0);
+                sendResult(9, pluginModel, upgradeVersion, 0, "Java插件解压失败");
                 return false;
             }
 
             logger.info("Java插件解压成功：" + extractPath);
 
-            // 从ZIP中读取rules.txt文件
+            // 将版本号写入到文件中，供后续读取使用
+            writeVersionToFile(extractPath, upgradeVersion);
+
+            // 复用处理规则的逻辑
+            return processUpgradeRules(upgradeFileDTO);
+
+        } catch (Exception e) {
+            logger.error("处理Java插件升级异常", e);
+            sendResult(9, pluginModel, upgradeVersion, 0, "处理Java插件升级异常: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 将版本号写入到文件中
+     *
+     * @param extractPath 解压路径
+     * @param version     版本号
+     */
+    private void writeVersionToFile(String extractPath, String version) {
+        try {
+            File versionFile = new File(extractPath + "version.txt");
+            try (java.io.FileWriter writer = new java.io.FileWriter(versionFile)) {
+                writer.write(version);
+            }
+            logger.info("版本号已写入到文件: " + versionFile.getAbsolutePath());
+        } catch (Exception e) {
+            logger.error("写入版本号文件失败", e);
+        }
+    }
+
+    /**
+     * 检查并安装待处理的插件
+     * 在升级com.wasu.osgi.bundle.update自身时，确保其他插件已正确安装
+     * 此方法由Activator调用，在Bundle重启后检查并安装之前解压但未安装的插件
+     */
+    @Override
+    public void checkAndInstallPendingPlugins() {
+        try {
+            String extractPath = CommonConstant.BUNDLE_PATH + "temp_extract/";
+
+            // 读取版本号（如果存在）
+            String version = readVersionFromFile(extractPath);
+            UpgradeFileDTO upgradeFileDTO = new UpgradeFileDTO();
+            upgradeFileDTO.setModel(CommonConstant.UPGRADE_TYPE_MAIN);
+            upgradeFileDTO.setVersion(version);
+            // 复用处理规则的逻辑
+            processUpgradeRules(upgradeFileDTO);
+
+        } catch (Exception e) {
+            logger.error("检查并安装待处理插件时发生异常", e);
+            sendResult(9, CommonConstant.UPGRADE_TYPE_MAIN, null, 0, "检查并安装待处理插件时发生异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 从文件中读取版本号
+     *
+     * @param extractPath 解压路径
+     * @return 版本号，如果读取失败或文件不存在则返回null
+     */
+    private String readVersionFromFile(String extractPath) {
+        try {
+            File versionFile = new File(extractPath + "version.txt");
+            if (versionFile.exists()) {
+                return new String(Files.readAllBytes(versionFile.toPath())).trim();
+            }
+        } catch (Exception e) {
+            logger.error("读取版本号文件失败", e);
+        }
+        return null;
+    }
+
+    /**
+     * 处理升级规则
+     *
+     * @param upgradeFileDTO 升级文件信息，如果为null表示仅安装插件
+     * @return 是否处理成功
+     */
+    private boolean processUpgradeRules(UpgradeFileDTO upgradeFileDTO) {
+        try {
+            String extractPath = CommonConstant.BUNDLE_PATH + "temp_extract/";
             File rulesFile = new File(extractPath + "rules.txt");
-            List<String> rulesList;
+            List<String> rulesList = new ArrayList<>();
             if (rulesFile.exists()) {
                 // 读取rules.txt文件内容
-                rulesList = Files.readAllLines(rulesFile.toPath());
-                logger.info("从rules.txt读取到规则: " + rulesList);
-            } else {
-                // 查找解压目录中的jar文件
-                File extractDir = new File(extractPath);
-                File[] files = extractDir.listFiles((dir, name) -> name.endsWith(".jar"));
-                if (files == null || files.length == 0) {
-                    logger.error("解压目录中未找到jar文件: " + extractPath);
-                    sendResult(9, pluginModel, upgradeVersion, 0);
+                List<String> lines = Files.readAllLines(rulesFile.toPath());
+                if (!lines.isEmpty()) {
+                    // 规则文件只有一行，按逗号分割成规则集合
+                    String[] rulesArray = lines.get(0).split(",");
+                    for (String rule : rulesArray) {
+                        // 去除每个规则前后的空格
+                        rule = rule.trim();
+                        if (!rule.isEmpty()) {
+                            rulesList.add(rule);
+                        }
+                    }
+                    logger.info("从rules.txt读取到规则: " + rulesList);
+
+                } else {
+                    logger.info("rules.txt文件内容为空，无升级规则");
+                    sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "rules.txt文件内容为空，无升级规则");
+
                     return false;
                 }
+            } else {
 
-                // 从jar文件名推断symbolic name作为规则
-                rulesList = new ArrayList<>();
-                for (File file : files) {
-                    String fileName = file.getName();
-                    int lastDashIndex = fileName.lastIndexOf("-");
-                    if (lastDashIndex > 0) {
-                        rulesList.add(fileName.substring(0, lastDashIndex));
-                    } else {
-                        // 如果没有版本号，去掉.jar后缀
-                        rulesList.add(fileName.substring(0, fileName.length() - 4));
-                    }
-                }
-                logger.info("从jar文件名推断出规则: " + rulesList);
-            }
+                logger.info("rules.txt文件不存在，无升级规则");
+                sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "rules.txt文件不存在，无升级规则");
 
-            // 确保UPGRADE_FILE_NAME在最后执行（如果存在的话）
-            if (rulesList.remove(CommonConstant.UPGRADE_FILE_NAME)) { // 先移除（如果存在）
-                rulesList.add(CommonConstant.UPGRADE_FILE_NAME);     // 再添加到末尾
+                return false;
             }
 
             // 获取BundleContext
             BundleContext bundleContext = FrameworkUtil.getBundle(Activator.class).getBundleContext();
             Bundle[] bundles = bundleContext.getBundles();
 
-            // 根据rules.txt中的规则进行升级
+            // 根据rules.txt中的规则进行处理
             boolean success = true;
-            Map<String, File> backupFiles = new HashMap<>();
             for (String symbolicName : rulesList) {
                 try {
                     logger.info("处理规则: " + symbolicName);
@@ -294,8 +388,16 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                         File jarFile = findJarFileBySymbolicName(symbolicName, extractPath);
                         if (jarFile == null) {
                             logger.error("未找到与规则匹配的jar文件: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
+
+                            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "未找到与规则匹配的jar文件: " + symbolicName);
+
                             success = false;
+                            continue;
+                        }
+
+                        // 如果仅安装插件，则跳过版本检查和升级流程
+                        if (upgradeFileDTO == null) {
+                            logger.info("插件 " + symbolicName + " 已存在，跳过安装");
                             continue;
                         }
 
@@ -312,26 +414,36 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                         boolean backResult = FileUtil.backupFile(backupFile, symbolicName);
                         if (!backResult) {
                             logger.error("Java插件备份失败: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
+
+                            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "Java插件备份失败: " + symbolicName);
+
                             success = false;
                             continue;
                         }
 
                         try {
+
                             // 执行升级
                             logger.info("使用jar文件进行升级: " + jarFile.getAbsolutePath());
                             targetBundle.update(Files.newInputStream(Paths.get(jarFile.getAbsolutePath())));
                             logger.info("Java插件升级完成: " + symbolicName + ", 文件: " + jarFile.getName());
-                            sendResult(1, pluginModel, upgradeVersion, 100);
-
                             // 如果是升级组件，升级完结束任务，因为升级组件启动还要再跑一遍计划
                             if (symbolicName.equals(CommonConstant.UPGRADE_FILE_NAME)) {
                                 break;
+                            } else {
+                                sendResult(1, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 100, "model:success,upgrade:success");
+                                // 清理临时解压目录
+                                cleanupTempExtractDirectory();
+                            }
+                            // 如果是model组件， wiring refreshed
+                            if (symbolicName.equals(CommonConstant.MODEL_FILE_NAME)) {
+                                refreshFramework();
                             }
                         } catch (Exception e) {
                             logger.error("升级Java插件文件时发生异常: " + symbolicName, e);
                             success = false;
-                            sendResult(9, pluginModel, upgradeVersion, 0);
+
+                            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "升级Java插件文件时发生异常: " + symbolicName + ", 错误: " + e.getMessage());
 
                             // 出现异常时直接回退
                             try {
@@ -358,9 +470,10 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                             break; // 一旦出错立即停止处理其他文件
                         }
                     } else {
+
                         // 检查是否提供了版本信息
-                        if (!StringUtil.isEmpty(upgradeVersion)) {
-                            logger.info("准备安装新的Java插件: " + symbolicName + "，版本: " + upgradeVersion);
+                        if (!StringUtil.isEmpty(upgradeFileDTO.getVersion())) {
+                            logger.info("准备安装新的Java插件: " + symbolicName + "，版本: " + upgradeFileDTO.getVersion());
                         } else {
                             logger.info("准备安装新的Java插件: " + symbolicName);
                         }
@@ -369,41 +482,33 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                         File jarFile = findJarFileBySymbolicName(symbolicName, extractPath);
                         if (jarFile == null) {
                             logger.error("未找到与规则匹配的jar文件: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
+
+                            sendResult(9, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 0, "未找到与规则匹配的jar文件: " + symbolicName);
+
                             success = false;
                             continue;
                         }
 
-                        // 从jar文件名中提取版本号
-                        String jarVersion = extractVersionFromJarName(jarFile.getName());
-                        if (!StringUtil.isEmpty(jarVersion)) {
-                            logger.info("准备安装新的Java插件: " + symbolicName + "，版本: " + jarVersion);
-                        } else {
-                            logger.info("准备安装新的Java插件: " + symbolicName);
-                        }
-
                         logger.info(symbolicName + "开始安装。");
                         //新bundle
-                        sendResult(1, pluginModel, null, 10);
                         Bundle bundle = bundleContext.installBundle("file:" + jarFile.getAbsolutePath());
                         bundle.start();
                         logger.info(symbolicName + " 插件安装成功");
-                        sendResult(1, pluginModel, upgradeVersion, 100);
+
+                        sendResult(1, upgradeFileDTO.getModel(), upgradeFileDTO.getVersion(), 100, symbolicName + " upgrade success." + upgradeFileDTO.getVersion());
 
                     }
                 } catch (Exception e) {
-                    logger.error("升级Java插件文件时发生异常: " + symbolicName, e);
+                    logger.error("处理Java插件时发生异常: " + symbolicName, e);
                     success = false;
-                    // 尝试回退已升级的bundle
-                    rollbackBundles(backupFiles);
                     break; // 一旦出错立即停止处理其他文件
+
                 }
             }
 
             return success;
         } catch (Exception e) {
-            logger.error("处理Java插件升级异常", e);
-            sendResult(9, pluginModel, upgradeVersion, 0);
+            logger.error("处理升级规则时发生异常", e);
             return false;
         }
     }
@@ -456,58 +561,6 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
         }
 
         return null;
-    }
-
-    /**
-     * 回退多个Bundle到备份版本
-     *
-     * @param backupFiles 备份文件映射
-     */
-    private void rollbackBundles(Map<String, File> backupFiles) {
-        try {
-            BundleContext bundleContext = FrameworkUtil.getBundle(Activator.class).getBundleContext();
-            Bundle[] bundles = bundleContext.getBundles();
-
-            for (Map.Entry<String, File> entry : backupFiles.entrySet()) {
-                String symbolicName = entry.getKey();
-                File backupFile = entry.getValue();
-
-                // 查找匹配的bundle
-                Bundle targetBundle = null;
-                for (Bundle bundle : bundles) {
-                    if (symbolicName.equals(bundle.getSymbolicName())) {
-                        targetBundle = bundle;
-                        break;
-                    }
-                }
-
-                if (targetBundle != null && backupFile != null) {
-                    try {
-                        String bundleFileName = new File(targetBundle.getLocation().substring(5)).getName();
-                        if (backupFile.getAbsolutePath().contains(CommonConstant.DEFAULT_PATH)) {
-                            if (targetBundle.getState() != Bundle.ACTIVE) {
-                                targetBundle.update(Files.newInputStream(Paths.get(backupFile.getAbsolutePath())));
-                                targetBundle.start();
-                            }
-                        } else {
-                            String backFilePath = FileUtil.getBackFilePath(bundleFileName);
-                            if (!StringUtil.isEmpty(backFilePath)) {
-                                Files.copy(Paths.get(backFilePath), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                if (targetBundle.getState() != Bundle.ACTIVE) {
-                                    targetBundle.update(Files.newInputStream(Paths.get(backupFile.getAbsolutePath())));
-                                    targetBundle.start();
-                                }
-                            }
-                        }
-                        logger.info("Java插件回退完成: " + symbolicName);
-                    } catch (Exception e) {
-                        logger.error("Java插件回退失败: " + symbolicName, e);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Java插件批量回退操作异常", e);
-        }
     }
 
     /**
@@ -633,28 +686,23 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                                 if (resultJson.has("per")) {
                                     progress = resultJson.getInt("per");
                                 }
-                                sendResult(0, upgradeType, upgradeVersion, progress);
+                                sendResult(0, upgradeType, upgradeVersion, progress, null);
                                 break;
                             case 1:
                                 logger.info("固件升级成功...");
                                 // 升级结束且成功
-                                sendResult(1, upgradeType, upgradeVersion, 100);
+                                sendResult(1, upgradeType, upgradeVersion, 100, null);
                                 scheduler.shutdown();
                                 break;
                             case 9:
                                 // 升级失败
-                                StringBuilder errorMsg = new StringBuilder("固件升级失败");
-                                if (resultJson.has("upgradeResult")) {
-                                    errorMsg.append(": ").append(resultJson.getString("upgradeResult"));
-                                } else {
-                                    errorMsg.append("，未知错误");
-                                }
-                                logger.error(errorMsg.toString());
-                                sendResult(9, upgradeType, upgradeVersion, 0);
+                                logger.error("固件升级失败...");
+                                sendResult(9, upgradeType, upgradeVersion, 0, null);
                                 scheduler.shutdown();
                                 break;
                             default:
                                 logger.error("未知的升级状态码: " + upgradeStatus);
+                                scheduler.shutdown();
                                 break;
                         }
                     } else {
@@ -663,58 +711,13 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                 }
             } catch (Exception e) {
                 logger.error("查询固件升级结果异常", e);
-                sendResult(9, upgradeType, upgradeVersion, 0);
+                sendResult(9, upgradeType, upgradeVersion, 0, "查询固件升级结果异常: " + e.getMessage());
                 scheduler.shutdown();
             }
         }, 10, 30, TimeUnit.SECONDS); // 延迟10秒后执行，每30秒查询一次
     }
 
-    private UpgradeInfoDTO convert(JSONObject wtsResponse) {
-        UpgradeInfoDTO upgradeInfoDTO = new UpgradeInfoDTO();
-        if (wtsResponse.has("rules")) {
-            upgradeInfoDTO.setRules(wtsResponse.getString("rules"));
-        }
-        if (wtsResponse.has("startTime")) {
-            upgradeInfoDTO.setStartTime(wtsResponse.getString("startTime"));
-        }
-        if (wtsResponse.has("endTime")) {
-            upgradeInfoDTO.setEndTime(wtsResponse.getString("endTime"));
-        }
-        if (wtsResponse.has("upgradeStartTime")) {
-            upgradeInfoDTO.setUpgradeStartTime(wtsResponse.getString("upgradeStartTime"));
-        }
-        if (wtsResponse.has("upgradeEndTime")) {
-            upgradeInfoDTO.setUpgradeEndTime(wtsResponse.getString("upgradeEndTime"));
-        }
-
-        if (wtsResponse.has("fileList")) {
-            JSONArray fileList = wtsResponse.getJSONArray("fileList");
-            if (fileList != null) {
-                List<UpgradeFileDTO> fileDTOS = new ArrayList<>();
-                for (int i = 0; i < fileList.length(); i++) {
-                    JSONObject file = fileList.getJSONObject(i);
-                    UpgradeFileDTO upgradeFileDTO = new UpgradeFileDTO();
-                    if (file.has("model")) {
-                        upgradeFileDTO.setModel(file.getString("model"));
-                    }
-                    if (file.has("version")) {
-                        upgradeFileDTO.setVersion(file.getString("version"));
-                    }
-                    if (file.has("md5")) {
-                        upgradeFileDTO.setMd5(file.getString("md5"));
-                    }
-                    if (file.has("url")) {
-                        upgradeFileDTO.setUrl(file.getString("url"));
-                    }
-                    fileDTOS.add(upgradeFileDTO);
-                }
-                upgradeInfoDTO.setFileList(fileDTOS);
-            }
-        }
-        return upgradeInfoDTO;
-    }
-
-    private void sendResult(Integer status, String component, String version, Integer per) {
+    private void sendResult(Integer status, String component, String version, Integer per, String detail) {
         try {
             // 构造MQTT消息参数，符合OTA升级状态上报格式
             JSONObject params = new JSONObject();
@@ -726,11 +729,11 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                 params.put("version", "unknown");
             }
             params.put("per", per != null ? per : 0);
+            params.put("detail", detail);
 
             // 通过MQTT发送升级结果
-            if (sendMqttMessage(params, "per")) {
-                return;
-            }
+            sendMqttMessage(params, "per");
+
         } catch (Exception e) {
             logger.error("发送升级结果异常", e);
         }
@@ -745,233 +748,150 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
      */
     private boolean sendMqttMessage(Object params, String attribute) {
         try {
-            // 使用upgrade模块自己的MQTT客户端
-            com.wasu.osgi.upgrade.util.MqttClient mqttClient = com.wasu.osgi.upgrade.util.MqttClient.getInstance();
-            mqttClient.upOTA(params, attribute);
-            return true;
+            //logger.info("准备通过MQTT发送消息，参数: " + params + "，属性: " + attribute);
+            IMqttService mqttService = UpgradeServiceTracker.getService();
+            int retryCount = 0;
+            while (mqttService == null && retryCount < 10) {
+                // logger.info("第 " + (retryCount + 1) + " 次尝试获取 IMqttService 服务失败，等待 10 秒后重试...");
+                Thread.sleep(10000);
+                mqttService = UpgradeServiceTracker.getService();
+                retryCount++;
+            }
+
+            if (mqttService != null) {
+                //logger.info("成功获取到 IMqttService 实例：" + mqttService);
+                mqttService.upOTA(params, attribute);
+                //logger.info("MQTT消息发送成功，参数: " + params + "，属性: " + attribute);
+                return true;
+            } else {
+                logger.error("无法获取 IMqttService 服务");
+            }
+
+            return false;
         } catch (Exception e) {
-            logger.error("通过MQTT发送升级结果失败", e);
+            logger.error("通过MQTT发送升级结果失败，参数: " + params + "，属性: " + attribute, e);
             return false;
         }
-    }
-
-    @Override
-    public boolean checkFirmwareUpgrade1(JSONObject params) {
-        try {
-            UpgradeFileDTO upgradeFileDTO = new UpgradeFileDTO();
-            upgradeFileDTO.setUrl("https://example.com/firmware.zip");
-            upgradeFileDTO.setVersion("1.1.0");
-            upgradeFileDTO.setModel(CommonConstant.UPGRADE_TYPE_JAVA_PLUGIN);
-            return handleJavaPluginUpgrade1(upgradeFileDTO);
-        } catch (Exception e) {
-            logger.error("检查固件升级异常", e);
-            sendResult(9, CommonConstant.UPGRADE_TYPE_JAVA_PLUGIN, "1.0.0", 0);
-        }
-        return false;
     }
 
     /**
-     * 处理Java插件升级
-     *
-     * @param upgradeFileDTO 升级文件信息
-     * @return 是否成功启动升级
+     * 在Activator启动时检查固件升级结果
+     * 当固件升级导致程序重启后，主动获取升级结果并上报
      */
-    private boolean handleJavaPluginUpgrade1(UpgradeFileDTO upgradeFileDTO) {
-        String packageUrl = upgradeFileDTO.getUrl();
-        String upgradeVersion = upgradeFileDTO.getVersion();
-        String pluginModel = upgradeFileDTO.getModel();
-
+    @Override
+    public void checkFirmwareUpgradeResultOnStartup() {
         try {
-            logger.info("1开始Java插件升级，URL：" + packageUrl + "，版本：" + upgradeVersion);
-            // 下载zip包
-            /*File zipFile = FileUtil.downloadFile(packageUrl, CommonConstant.BUNDLE_PATH);
-            if (zipFile == null) {
-                logger.error("Java插件下载失败");
-                sendResult(9, pluginModel, upgradeVersion, 0);
-                return false;
-            }*/
-
-            // 解压zip包
-            String extractPath = CommonConstant.BUNDLE_PATH + "temp_extract/";
-            if (!extractZipFile(CommonConstant.BUNDLE_PATH + "tftp.zip", extractPath)) {
-                logger.error("1Java插件解压失败");
-                sendResult(9, pluginModel, upgradeVersion, 0);
-                return false;
-            }
-
-            logger.info("1Java插件解压成功：" + extractPath);
-
-            // 从ZIP中读取rules.txt文件
-            File rulesFile = new File(extractPath + "rules.txt");
-            List<String> rulesList;
-            if (rulesFile.exists()) {
-                // 读取rules.txt文件内容
-                rulesList = Files.readAllLines(rulesFile.toPath());
-                logger.info("从rules.txt读取到规则: " + rulesList);
-            } else {
-                // 查找解压目录中的jar文件
-                File extractDir = new File(extractPath);
-                File[] files = extractDir.listFiles((dir, name) -> name.endsWith(".jar"));
-                if (files == null || files.length == 0) {
-                    logger.error("解压目录中未找到jar文件: " + extractPath);
-                    sendResult(9, pluginModel, upgradeVersion, 0);
-                    return false;
-                }
-
-                // 从jar文件名推断symbolic name作为规则
-                rulesList = new ArrayList<>();
-                for (File file : files) {
-                    String fileName = file.getName();
-                    int lastDashIndex = fileName.lastIndexOf("-");
-                    if (lastDashIndex > 0) {
-                        rulesList.add(fileName.substring(0, lastDashIndex));
-                    } else {
-                        // 如果没有版本号，去掉.jar后缀
-                        rulesList.add(fileName.substring(0, fileName.length() - 4));
-                    }
-                }
-                logger.info("从jar文件名推断出规则: " + rulesList);
-            }
-
-            // 确保UPGRADE_FILE_NAME在最后执行（如果存在的话）
-            if (rulesList.remove(CommonConstant.UPGRADE_FILE_NAME)) { // 先移除（如果存在）
-                rulesList.add(CommonConstant.UPGRADE_FILE_NAME);     // 再添加到末尾
-            }
-
-            // 获取BundleContext
+            // 获取硬件升级服务
             BundleContext bundleContext = FrameworkUtil.getBundle(Activator.class).getBundleContext();
-            Bundle[] bundles = bundleContext.getBundles();
+            ServiceReference<HardwareUpdate> serviceReference = bundleContext.getServiceReference(HardwareUpdate.class);
+            if (serviceReference == null) {
+                logger.warn("无法获取HardwareUpdate服务");
+                return;
+            }
 
-            // 根据rules.txt中的规则进行升级
-            boolean success = true;
-            Map<String, File> backupFiles = new HashMap<>();
-            for (String symbolicName : rulesList) {
-                try {
-                    logger.info("处理规则: " + symbolicName);
+            HardwareUpdate hardwareUpdate = bundleContext.getService(serviceReference);
+            if (hardwareUpdate == null) {
+                logger.warn("HardwareUpdate实例为空");
+                return;
+            }
 
-                    // 查找匹配的bundle
-                    Bundle targetBundle = null;
-                    Optional<Bundle> first = Arrays.stream(bundles).filter(s -> symbolicName.equals(s.getSymbolicName())).findFirst();
-                    //更新
-                    if (first.isPresent()) {
-                        targetBundle = first.get();
+            String result = hardwareUpdate.getHardwareResult();
+            if (!StringUtil.isEmpty(result)) {
+                JSONObject resultJson = new JSONObject(result);
+                logger.info("固件升级结果：" + resultJson.toString());
 
-                        // 查找对应的jar文件
-                        File jarFile = findJarFileBySymbolicName(symbolicName, extractPath);
-                        if (jarFile == null) {
-                            logger.error("未找到与规则匹配的jar文件: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
-                            success = false;
-                            continue;
-                        }
+                // 检查升级状态
+                if (resultJson.has("upgradeStatus")) {
+                    int upgradeStatus = resultJson.getInt("upgradeStatus");
+                    String component = resultJson.optString("component", "unknown");
+                    String upgradeVersion = resultJson.optString("upgradeVersion", "unknown");
+                    int progress = resultJson.optInt("per", 0);
 
-                        // 从jar文件名中提取版本号进行比较
-                        String jarVersion = extractVersionFromJarName(jarFile.getName());
-                        String currentVersion = targetBundle.getVersion().toString();
-                        if (!StringUtil.isEmpty(jarVersion) && jarVersion.compareTo(currentVersion) <= 0) {
-                            logger.info("Java插件 " + symbolicName + " 当前版本(" + currentVersion + ")已大于或等于目标版本(" + jarVersion + ")，无需升级");
-                            continue;
-                        }
-
-                        // 在更新前备份当前运行的JAR文件
-                        File backupFile = FileUtil.getBackupFile(symbolicName);
-                        boolean backResult = FileUtil.backupFile(backupFile, symbolicName);
-                        if (!backResult) {
-                            logger.error("Java插件备份失败: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
-                            success = false;
-                            continue;
-                        }
-
-                        try {
-                            // 执行升级
-                            logger.info("使用jar文件进行升级: " + jarFile.getAbsolutePath());
-                            targetBundle.update(Files.newInputStream(Paths.get(jarFile.getAbsolutePath())));
-                            logger.info("Java插件升级完成: " + symbolicName + ", 文件: " + jarFile.getName());
-                            sendResult(1, pluginModel, upgradeVersion, 100);
-
-                            // 如果是升级组件，升级完结束任务，因为升级组件启动还要再跑一遍计划
-                            if (symbolicName.equals(CommonConstant.UPGRADE_FILE_NAME)) {
-                                break;
-                            }
-                        } catch (Exception e) {
-                            logger.error("升级Java插件文件时发生异常: " + symbolicName, e);
-                            success = false;
-                            sendResult(9, pluginModel, upgradeVersion, 0);
-
-                            // 出现异常时直接回退
-                            try {
-                                if (backupFile.getAbsolutePath().contains(CommonConstant.DEFAULT_PATH)) {
-                                    if (targetBundle.getState() != Bundle.ACTIVE) {
-                                        targetBundle.update(Files.newInputStream(Paths.get(backupFile.getAbsolutePath())));
-                                        targetBundle.start();
-                                    }
-                                } else {
-                                    String backFilePath = FileUtil.getBackFilePath(symbolicName);
-                                    if (!StringUtil.isEmpty(backFilePath)) {
-                                        Files.copy(Paths.get(backFilePath), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                        if (targetBundle.getState() != Bundle.ACTIVE) {
-                                            targetBundle.update(Files.newInputStream(Paths.get(backupFile.getAbsolutePath())));
-                                            targetBundle.start();
-                                        }
-                                    }
-                                }
-                                logger.info("Java插件回退完成: " + symbolicName);
-                            } catch (Exception rollbackException) {
-                                logger.error("Java插件回退失败: " + symbolicName, rollbackException);
-                            }
-
-                            break; // 一旦出错立即停止处理其他文件
-                        }
-                    } else {
-                        // 检查是否提供了版本信息
-                        if (!StringUtil.isEmpty(upgradeVersion)) {
-                            logger.info("准备安装新的Java插件: " + symbolicName + "，版本: " + upgradeVersion);
-                        } else {
-                            logger.info("准备安装新的Java插件: " + symbolicName);
-                        }
-
-                        // 查找对应的jar文件
-                        File jarFile = findJarFileBySymbolicName(symbolicName, extractPath);
-                        if (jarFile == null) {
-                            logger.error("未找到与规则匹配的jar文件: " + symbolicName);
-                            sendResult(9, pluginModel, upgradeVersion, 0);
-                            success = false;
-                            continue;
-                        }
-
-                        // 从jar文件名中提取版本号
-                        String jarVersion = extractVersionFromJarName(jarFile.getName());
-                        if (!StringUtil.isEmpty(jarVersion)) {
-                            logger.info("准备安装新的Java插件: " + symbolicName + "，版本: " + jarVersion);
-                        } else {
-                            logger.info("准备安装新的Java插件: " + symbolicName);
-                        }
-
-                        logger.info(symbolicName + "开始安装。");
-                        //新bundle
-                        sendResult(1, pluginModel, null, 10);
-                        Bundle bundle = bundleContext.installBundle("file:" + jarFile.getAbsolutePath());
-                        bundle.start();
-                        logger.info(symbolicName + " 插件安装成功");
-                        sendResult(1, pluginModel, upgradeVersion, 100);
-
+                    switch (upgradeStatus) {
+                        case 0:
+                            sendResult(0, component, upgradeVersion, progress, null);
+                            break;
+                        case 1:
+                            sendResult(1, component, upgradeVersion, 100, null);
+                            break;
+                        case 9:
+                            sendResult(9, component, upgradeVersion, 0, null);
+                            break;
+                        default:
+                            logger.error("目前无升级固件: " + upgradeStatus);
+                            break;
                     }
-                } catch (Exception e) {
-                    logger.error("升级Java插件文件时发生异常: " + symbolicName, e);
-                    success = false;
-                    // 尝试回退已升级的bundle
-                    rollbackBundles(backupFiles);
-                    break; // 一旦出错立即停止处理其他文件
+                } else {
+                    logger.warn("返回结果中不包含upgradeStatus字段");
                 }
             }
 
-            return success;
         } catch (Exception e) {
-            logger.error("处理Java插件升级异常", e);
-            sendResult(9, pluginModel, upgradeVersion, 0);
-            return false;
+            logger.error("检查固件升级结果时发生异常", e);
         }
     }
 
+    public void refreshFramework() {
+        try {
+            /*BundleContext ctx = FrameworkUtil.getBundle(this.getClass()).getBundleContext();
+            FrameworkWiring fw = ctx.getBundle(0).adapt(FrameworkWiring.class);
+            fw.refreshBundles(null);
+            System.out.println("OSGi framework wiring refreshed successfully!");*/
+            BundleContext ctx = FrameworkUtil.getBundle(this.getClass()).getBundleContext();
+            Bundle[] bundles = ctx.getBundles();
+
+            List<Bundle> bundlesToRefresh = new ArrayList<>();
+            for (Bundle b : bundles) {
+                String bundleSymbolicName = b.getSymbolicName();
+                if (CommonConstant.MODEL_FILE_NAME.equals(bundleSymbolicName)
+                        || CommonConstant.UPGRADE_FILE_NAME.equals(bundleSymbolicName)) {
+                    bundlesToRefresh.add(b);
+                }
+            }
+
+            if (!bundlesToRefresh.isEmpty()) {
+                FrameworkWiring fw = ctx.getBundle(0).adapt(FrameworkWiring.class);
+                fw.refreshBundles(bundlesToRefresh);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 清理临时解压目录
+     */
+    private void cleanupTempExtractDirectory() {
+        try {
+            String extractPath = CommonConstant.BUNDLE_PATH + "temp_extract/";
+            File extractDir = new File(extractPath);
+            if (extractDir.exists()) {
+                deleteDirectory(extractDir);
+                logger.info("临时解压目录已清理: " + extractPath);
+            }
+        } catch (Exception e) {
+            logger.error("清理临时解压目录时发生异常", e);
+        }
+    }
+
+    /**
+     * 递归删除目录及其内容
+     *
+     * @param directory 要删除的目录
+     * @return 是否删除成功
+     */
+    private boolean deleteDirectory(File directory) {
+        if (directory.isDirectory()) {
+            File[] files = directory.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (!deleteDirectory(file)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return directory.delete();
+    }
 }

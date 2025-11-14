@@ -24,7 +24,6 @@ public abstract class AbstractScheduled implements Runnable {
     @Setter
     @Getter
     private JSONObject param;
-
     public void startFetchingData(long initialDelay, long period, TimeUnit unit) {
         logger.info(getClass().getSimpleName() + " 定时任务启动：delay=" + initialDelay + "s, period=" + period + "s");
         if (future == null || future.isCancelled()) {

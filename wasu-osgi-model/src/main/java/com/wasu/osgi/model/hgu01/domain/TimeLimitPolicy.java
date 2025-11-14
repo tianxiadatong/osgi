@@ -59,7 +59,6 @@ public class TimeLimitPolicy {
 
     /**
      * 获取策略对应的所有执行日
-     *
      * @return 返回执行日的索引列表（0=周一，6=周日）
      */
     public List<Integer> getActiveDays() {

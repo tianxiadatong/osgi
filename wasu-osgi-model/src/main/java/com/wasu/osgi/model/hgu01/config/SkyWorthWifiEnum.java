@@ -32,10 +32,11 @@ public enum SkyWorthWifiEnum {
     BANDWIDTH_40("40MHz", "40M"),
     BANDWIDTH_80("80MHz", "80M"),
     BANDWIDTH_20_40("20/40MHz", "Auto20M40M"),
-    BANDWIDTH_20_40_80("20/40/80MHz", "Auto20M40M80M");
+    BANDWIDTH_20_40_80("20/40/80MHz","Auto20M40M80M");
 
     private final String iotKey;  // 原始Key（如WPA_PSK）
     private final String customValue; // 产品线A的自定义值（如WPAPSK）
+
 
     SkyWorthWifiEnum(String iotKey, String customValue) {
         this.iotKey = iotKey;

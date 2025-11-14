@@ -7,9 +7,7 @@ import com.wasu.osgi.model.hgu01.service.IHardwareService;
 import org.apache.log4j.Logger;
 import org.json.JSONObject;
 
-/**
- * 数据上报服务
- *
+/** 数据上报服务
  * @author Vicky
  * @date 2025年04月24日 16:00
  */
@@ -23,10 +21,8 @@ public class DataReportingService {
 //        hardwareService = new HardwareServiceImpl();
         hardwareService = HttpRequest.getHardwareService();
     }
-
     /**
      * 事件上报：infoNotification
-     *
      * @author Vicky
      * @date 2025/4/24 16:50
      */

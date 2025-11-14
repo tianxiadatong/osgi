@@ -90,24 +90,16 @@ public interface IHardwareService {
      */
     boolean deviceTimeLimit(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.9 删除设备限时
-     */
+    /** 7.3.1.2.4.9 删除设备限时 */
     boolean removeDeviceTimeLimit(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.32 获取客户端限时设置列表
-     */
+    /** 7.3.1.2.4.32 获取客户端限时设置列表 */
     JSONArray getSubTimeLimitList(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.33 删除客户端单个限时设置
-     */
+    /** 7.3.1.2.4.33 删除客户端单个限时设置 */
     boolean removeSubTimeLimitList(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.34 设置客户端单个限时开关状态
-     */
+    /** 7.3.1.2.4.34 设置客户端单个限时开关状态 */
     boolean setSubTimeLimitList(JSONObject params);
 
     /*====================网关CA信息接口(DVB网关)接口====================*/
@@ -224,62 +216,46 @@ public interface IHardwareService {
 
     JSONObject getPONIfPhyStatus();
 
-    /**
-     * 7.3.1.2.4.25 定时重启
-     */
+    /** 7.3.1.2.4.25 定时重启 */
     boolean scheduledRestart(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.28设置开关状态
-     * 入参：funcName 枚举
-     * scheduledRestart（定时重启)
+    /** 7.3.1.2.4.28设置开关状态
+     入参：funcName 枚举
+     scheduledRestart（定时重启)
      */
     boolean setSwitchStatus(JSONObject params);
+
+    JSONObject getSwitchStatus(JSONObject params);
 
     /**
      * 7.3.1.2.4.37 获取定时重启任务列表
      */
     JSONArray getScheduledRestart();
 
-    /**
-     * 7.3.1.2.4.38 删除定时重启任务
-     */
+    /** 7.3.1.2.4.38 删除定时重启任务 */
     boolean removeScheduledRestart(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.46 设置指示灯状态
-     */
+    /** 7.3.1.2.4.46 设置指示灯状态 */
     boolean setLightStatus(JSONObject params);
 
-    /**
-     * 7.3.1.2.4.47 获取指示灯状态
-     */
+    /** 7.3.1.2.4.47 获取指示灯状态 */
     JSONObject getLightStatus();
 
-    /**
-     * 7.3.1.2.4.51 信道干扰
-     */
+    /** 7.3.1.2.4.51 信道干扰 */
     boolean channelInterference();
 
-    /**
-     * 获取WLAN频段邻居信息
-     */
+    /** 获取WLAN频段邻居信息 */
     JSONArray getWLANNeighbor(String radioType);
 
-    /**
-     * 7.3.1.2.4.53 获取端口列表 同步上报
-     */
+    /** 7.3.1.2.4.53 获取端口列表 同步上报 */
     JSONArray getPortList();
 
-    /**
-     * 查询WAN口状态
-     */
+    /** 查询WAN口状态 */
     JSONObject getWANIfStatus(Integer wanIndex);
 
-    /**
-     * 获取以太网端口信息 LAN端口状态
-     */
+    /** 获取以太网端口信息 LAN端口状态 */
     JSONObject getLANEthernetInfo(Integer portIndex);
+
 
     JSONArray getWLANHostInfo(String[] macs);
 
@@ -331,7 +307,5 @@ public interface IHardwareService {
 
 //    boolean setPilotLamp(JSONObject params);
 
-    //  boolean setPlugSwitchStatus(JSONObject params);
 
-    //  JSONArray getPlugSwitchStatus();
 }

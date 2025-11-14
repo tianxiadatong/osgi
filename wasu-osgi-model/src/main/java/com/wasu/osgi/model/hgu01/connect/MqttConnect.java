@@ -13,7 +13,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.osgi.framework.BundleContext;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -243,9 +244,6 @@ public class MqttConnect implements MqttCallbackExtended {
                         logger.info("mqtt发送响应数据：" + jsonString);
                     }
                 }
-                if ("thing.service.getWifiSetting.post".equals(method)) {
-
-                }
                 return;
             }
             logger.error("找不到处理类，method：" + method);
@@ -256,14 +254,14 @@ public class MqttConnect implements MqttCallbackExtended {
             String method = msg.getString("method");
             if ("thing.ota.get_reply".equals(method)) {
                 // 修改参数处理逻辑，适配实际参数结构
-                JSONObject params = null;
+               /* JSONObject params = null;
                 if (msg.has("data")) {
                     params = msg.getJSONObject("data");
-                }
+                }*/
                 IHandler handler = HandlerRegistry.getHandler(method);
                 if (handler != null) {
                     try {
-                        handler.handle(method, params);
+                        handler.handle(method, msg);
                     } catch (Exception e) {
                         logger.error("服务调用异常：" + e);
                     }
@@ -309,12 +307,12 @@ public class MqttConnect implements MqttCallbackExtended {
         upData(jsonString);
     }
 
+
     /**
      * 通用OTA消息发送方法
      * 7.3.3.2设备上报固件升级进度  7.3.3.3设备请求升级
      * 支持发送各种OTA相关消息，如进度上报、升级请求等
-     *
-     * @param params    参数对象，根据attribute不同包含不同的字段
+     * @param params 参数对象，根据attribute不同包含不同的字段
      * @param attribute 方法属性，如"per"表示进度上报，"get"表示请求升级
      * @throws MqttException MQTT异常
      */

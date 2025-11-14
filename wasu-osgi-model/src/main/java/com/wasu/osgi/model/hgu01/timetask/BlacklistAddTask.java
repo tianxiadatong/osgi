@@ -15,7 +15,6 @@ import java.util.Calendar;
 public class BlacklistAddTask extends AbstractScheduled {
     private final IHardwareService hardwareService;
     private static final Logger logger = Logger.getLogger(HardwareServiceImpl.class);
-
     public BlacklistAddTask() {
         hardwareService = HttpRequest.getHardwareService();
     }

@@ -1,5 +1,4 @@
 package com.wasu.osgi.model.hgu01.connect;
-
 import com.wasu.osgi.model.hgu01.config.CommonConstant;
 import com.wasu.osgi.model.hgu01.config.ConfigProperties;
 import com.wasu.osgi.model.hgu01.config.DataProperties;

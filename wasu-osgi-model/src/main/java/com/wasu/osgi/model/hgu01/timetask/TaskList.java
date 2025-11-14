@@ -15,7 +15,6 @@ public class TaskList {
     public TaskList(TaskManager taskManager) {
         this.taskManager = taskManager;
     }
-
     public void init(BundleContext context) {
 //        taskManager = new TaskManager();
         taskManager.init(context);
