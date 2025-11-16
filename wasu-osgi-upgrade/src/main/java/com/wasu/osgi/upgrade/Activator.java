@@ -13,6 +13,7 @@ import com.wasu.osgi.upgrade.service.impl.UpgradeServiceTracker;
 import com.wasu.osgi.upgrade.util.LogUtil;
 import com.wasu.osgi.upgrade.util.NetworkChecker;
 import com.wasu.osgi.upgrade.util.StringUtil;
+import com.wasu.osgi.upgrade.util.UpdateRuntime;
 import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -56,7 +57,6 @@ public class Activator implements BundleActivator {
         closeResource();
         // 关闭 UpgradeServiceTracker
         UpgradeServiceTracker.close();
-
     }
 
     private void networkRetry(BundleContext context) {

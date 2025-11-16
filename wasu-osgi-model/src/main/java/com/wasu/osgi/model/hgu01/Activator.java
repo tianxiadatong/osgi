@@ -64,6 +64,8 @@ public class Activator implements BundleActivator {
         MqttConnect.disconnect();
         // 关闭 UpgradeServiceTracker
         UpgradeServiceTracker.close();
+
+
     }
 
     private void networkRetry(BundleContext context) {
@@ -136,5 +138,6 @@ public class Activator implements BundleActivator {
         if (executor != null) {
             executor.shutdownNow();
         }
+
     }
 }

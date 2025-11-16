@@ -9,6 +9,7 @@ import com.wasu.osgi.upgrade.service.IFirmwareUpgradeService;
 import com.wasu.osgi.upgrade.service.IMqttService;
 import com.wasu.osgi.upgrade.util.FileUtil;
 import com.wasu.osgi.upgrade.util.StringUtil;
+import com.wasu.osgi.upgrade.util.UpdateRuntime;
 import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -263,6 +264,8 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
         } catch (Exception e) {
             logger.error("处理Java插件升级异常", e);
             sendResult(9, pluginModel, upgradeVersion, 0, "处理Java插件升级异常: " + e.getMessage());
+            // 清理临时解压目录
+            cleanupTempExtractDirectory();
             return false;
         }
     }
@@ -306,6 +309,9 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
         } catch (Exception e) {
             logger.error("检查并安装待处理插件时发生异常", e);
             sendResult(9, CommonConstant.UPGRADE_TYPE_MAIN, null, 0, "检查并安装待处理插件时发生异常: " + e.getMessage());
+        } finally {
+            // 清理临时解压目录
+            cleanupTempExtractDirectory();
         }
     }
 
@@ -395,12 +401,6 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                             continue;
                         }
 
-                        // 如果仅安装插件，则跳过版本检查和升级流程
-                        if (upgradeFileDTO == null) {
-                            logger.info("插件 " + symbolicName + " 已存在，跳过安装");
-                            continue;
-                        }
-
                         // 从jar文件名中提取版本号进行比较
                         String jarVersion = extractVersionFromJarName(jarFile.getName());
                         String currentVersion = targetBundle.getVersion().toString();
@@ -422,11 +422,13 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                         }
 
                         try {
-
+                            //先关闭所有旧线程
+                            UpdateRuntime.shutdownAll();
                             // 执行升级
                             logger.info("使用jar文件进行升级: " + jarFile.getAbsolutePath());
                             targetBundle.update(Files.newInputStream(Paths.get(jarFile.getAbsolutePath())));
                             logger.info("Java插件升级完成: " + symbolicName + ", 文件: " + jarFile.getName());
+                            refreshFramework(symbolicName);
                             // 如果是升级组件，升级完结束任务，因为升级组件启动还要再跑一遍计划
                             if (symbolicName.equals(CommonConstant.UPGRADE_FILE_NAME)) {
                                 break;
@@ -435,10 +437,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                                 // 清理临时解压目录
                                 cleanupTempExtractDirectory();
                             }
-                            // 如果是model组件， wiring refreshed
-                            if (symbolicName.equals(CommonConstant.MODEL_FILE_NAME)) {
-                                refreshFramework();
-                            }
+
                         } catch (Exception e) {
                             logger.error("升级Java插件文件时发生异常: " + symbolicName, e);
                             success = false;
@@ -467,6 +466,8 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                                 logger.error("Java插件回退失败: " + symbolicName, rollbackException);
                             }
 
+                            // 清理临时解压目录
+                            cleanupTempExtractDirectory();
                             break; // 一旦出错立即停止处理其他文件
                         }
                     } else {
@@ -501,6 +502,8 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
                 } catch (Exception e) {
                     logger.error("处理Java插件时发生异常: " + symbolicName, e);
                     success = false;
+                    // 清理临时解压目录
+                    cleanupTempExtractDirectory();
                     break; // 一旦出错立即停止处理其他文件
 
                 }
@@ -660,6 +663,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
      */
     private void scheduleUpgradeResultCheck(HardwareUpdate HardwareUpdate, String upgradeType, String upgradeVersion) {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        UpdateRuntime.register(scheduler);
         scheduler.scheduleWithFixedDelay(() -> {
             try {
                 // getHardwareResult返回值说明：
@@ -831,7 +835,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
         }
     }
 
-    public void refreshFramework() {
+    public void refreshFramework(String symbolicName) {
         try {
             /*BundleContext ctx = FrameworkUtil.getBundle(this.getClass()).getBundleContext();
             FrameworkWiring fw = ctx.getBundle(0).adapt(FrameworkWiring.class);
@@ -843,8 +847,7 @@ public class FirmwareUpgradeServiceImpl implements IFirmwareUpgradeService {
             List<Bundle> bundlesToRefresh = new ArrayList<>();
             for (Bundle b : bundles) {
                 String bundleSymbolicName = b.getSymbolicName();
-                if (CommonConstant.MODEL_FILE_NAME.equals(bundleSymbolicName)
-                        || CommonConstant.UPGRADE_FILE_NAME.equals(bundleSymbolicName)) {
+                if (symbolicName.equals(bundleSymbolicName)) {
                     bundlesToRefresh.add(b);
                 }
             }
